@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Vocab Multi-Mode Quiz</title>
+
+  <!-- (선택) 탭 아이콘 -->
+  <link rel="icon" href="{{ url_for('static', filename='logo.png') }}">
+
   <style>
     :root{
       --bg:#0f172a;
@@ -32,6 +36,7 @@
       padding:28px;
       box-shadow:0 12px 40px rgba(0,0,0,0.35);
     }
+
     header{
       display:flex;
       gap:12px;
@@ -39,6 +44,23 @@
       justify-content:space-between;
       margin-bottom:12px;
     }
+
+    /* ✅ 로고+타이틀 묶음 */
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:10px;
+    }
+    .logo{
+      width:28px;
+      height:28px;
+      border-radius:6px;
+      object-fit:contain;
+      background:rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.08);
+      padding:2px;
+    }
+
     .title{
       font-size:24px;
       font-weight:700;
@@ -159,13 +181,18 @@
     .muted{ color:var(--muted); }
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <header>
-      <div>
-        <div class="title">단어 퀴즈 (3모드)</div>
-        <div class="meta">한영 / 영영 / 예문 빈칸</div>
+      <div class="brand">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="School logo" class="logo"/>
+        <div>
+          <div class="title">단어 퀴즈 (3모드)</div>
+          <div class="meta">모드별 1회전 → 오답 복습</div>
+        </div>
       </div>
+
       <div class="meta">
         한영 {{ counts["ko"] }} · 영영 {{ counts["en"] }} · 예문 {{ counts["ex"] }}
       </div>
@@ -178,7 +205,7 @@
     </div>
 
     <div class="card">
-      <div id="promptLabel" class="prompt-label">뜻</div>
+      <div id="promptLabel" class="prompt-label">뜻(한글)</div>
       <div id="prompt" class="prompt">로딩 중...</div>
 
       <div class="stats">
@@ -200,8 +227,14 @@
 <script>
   let mode = "ko";
   let currentPrompt = "";
-  let correct = 0;
-  let wrong = 0;
+  let currentQid = null;
+
+  // ✅ 모드별 통계 분리
+  const stats = {
+    ko: { correct: 0, wrong: 0 },
+    en: { correct: 0, wrong: 0 },
+    ex: { correct: 0, wrong: 0 }
+  };
 
   const promptEl = document.getElementById("prompt");
   const promptLabelEl = document.getElementById("promptLabel");
@@ -221,10 +254,11 @@
   }
 
   function updateStats(){
-    correctCntEl.textContent = correct;
-    wrongCntEl.textContent = wrong;
-    const total = correct + wrong;
-    const acc = total === 0 ? 0 : Math.round((correct / total) * 100);
+    const s = stats[mode];
+    correctCntEl.textContent = s.correct;
+    wrongCntEl.textContent = s.wrong;
+    const total = s.correct + s.wrong;
+    const acc = total === 0 ? 0 : Math.round((s.correct / total) * 100);
     accEl.textContent = acc + "%";
   }
 
@@ -243,7 +277,6 @@
       b.classList.toggle("active", b.dataset.mode === mode);
     });
     promptLabelEl.textContent = labelForMode(mode);
-    answerEl.placeholder = "영어 단어 입력";
   }
 
   async function loadNext(){
@@ -255,15 +288,15 @@
     const data = await res.json();
 
     currentPrompt = data.prompt || "";
-    promptEl.textContent = currentPrompt;
+    currentQid = data.qid;
 
+    promptEl.textContent = currentPrompt;
     promptLabelEl.textContent = labelForMode(mode);
 
     answerEl.value = "";
     answerEl.focus();
 
     if(data.empty){
-      // 데이터 비어있을 때는 채점 막기
       lockQuestion();
       feedbackEl.className = "feedback muted";
       feedbackEl.textContent = "이 모드 데이터가 아직 없어요.";
@@ -283,38 +316,32 @@
     const res = await fetch("/api/check", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        mode,
-        prompt: currentPrompt,
-        answer
-      })
+      body: JSON.stringify({ mode, qid: currentQid, answer })
     });
 
     const data = await res.json();
 
     if(data.correct){
-      correct++;
+      stats[mode].correct++;
       feedbackEl.className = "feedback good";
       feedbackEl.textContent = "정답! ✅";
       updateStats();
-      setTimeout(loadNext, 350);
+      setTimeout(loadNext, 250);
     }else{
-      wrong++;
+      stats[mode].wrong++;
       feedbackEl.className = "feedback bad";
       feedbackEl.textContent = `오답 ❌ 정답: ${data.correct_word}`;
       updateStats();
-
-      // ✅ 오답이면 수정/재채점 불가
-      lockQuestion();
+      lockQuestion(); // ✅ 오답 후 수정/재채점 금지
       nextBtn.focus();
     }
   }
 
-  // 모드 버튼 이벤트
   modeBtns.forEach(btn => {
     btn.addEventListener("click", () => {
       mode = btn.dataset.mode;
       setActiveModeUI();
+      updateStats();
       loadNext();
     });
   });
@@ -324,9 +351,7 @@
 
   answerEl.addEventListener("keydown", (e) => {
     if(answerEl.disabled) return;
-    if(e.key === "Enter"){
-      checkAnswer();
-    }
+    if(e.key === "Enter") checkAnswer();
   });
 
   setActiveModeUI();

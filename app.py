@@ -1,7 +1,9 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session
 import random
+import os
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
 
 # =========================
 # 1) 데이터
@@ -493,6 +495,7 @@ EXAMPLES = [
     },
 ]
 
+
 MODES = {
     "ko": {"label": "한영", "prompt_key": "meaning", "data": KO_EN},
     "en": {"label": "영영", "prompt_key": "definition", "data": EN_EN},
@@ -500,13 +503,51 @@ MODES = {
 }
 
 # =========================
-# 2) 라우트
+# 2) 세션 상태 헬퍼
+# =========================
+
+def _unseen_key(mode): return f"unseen_{mode}"
+def _wrong_key(mode): return f"wrong_{mode}"
+
+def _init_mode_state(mode):
+    """모드별 1회전/오답 큐 초기화"""
+    ukey = _unseen_key(mode)
+    wkey = _wrong_key(mode)
+
+    data_list = MODES[mode]["data"]
+
+    if ukey not in session:
+        session[ukey] = list(range(len(data_list)))
+        random.shuffle(session[ukey])
+
+    if wkey not in session:
+        session[wkey] = []
+
+def _reset_unseen(mode):
+    """1회전 리셋"""
+    ukey = _unseen_key(mode)
+    data_list = MODES[mode]["data"]
+    session[ukey] = list(range(len(data_list)))
+    random.shuffle(session[ukey])
+
+def _get_item_by_qid(mode, qid):
+    data_list = MODES[mode]["data"]
+    if qid is None or qid < 0 or qid >= len(data_list):
+        return None
+    return data_list[qid]
+
+# =========================
+# 3) 페이지
 # =========================
 
 @app.route("/")
 def index():
     counts = {k: len(v["data"]) for k, v in MODES.items()}
     return render_template("index.html", counts=counts)
+
+# =========================
+# 4) API
+# =========================
 
 @app.route("/api/next")
 def api_next():
@@ -526,51 +567,82 @@ def api_next():
             "empty": True
         })
 
-    item = random.choice(data_list)
+    _init_mode_state(mode)
+    ukey = _unseen_key(mode)
+    wkey = _wrong_key(mode)
+
+    # ✅ 1회전 우선
+    if session[ukey]:
+        qid = session[ukey].pop()
+    else:
+        # ✅ 1회전 끝난 후에만 오답 복습
+        if session[wkey]:
+            qid = session[wkey].pop(0)  # queue 방식
+        else:
+            # ✅ 오답도 다 끝나면 1회전 리셋
+            _reset_unseen(mode)
+            qid = session[ukey].pop()
+
+    item = data_list[qid]
+
     return jsonify({
         "mode": mode,
         "label": MODES[mode]["label"],
         "prompt_key": prompt_key,
         "prompt": item[prompt_key],
+        "qid": qid,
         "empty": False
     })
+
 
 @app.route("/api/check", methods=["POST"])
 def api_check():
     data = request.get_json(force=True)
 
     mode = (data.get("mode") or "ko").strip()
-    prompt = (data.get("prompt") or "").strip()
     answer = (data.get("answer") or "").strip().lower()
+    qid = data.get("qid")
 
     if mode not in MODES:
         return jsonify({"ok": False, "error": "Invalid mode"}), 400
 
     data_list = MODES[mode]["data"]
-    prompt_key = MODES[mode]["prompt_key"]
-
     if not data_list:
         return jsonify({"ok": False, "error": "Empty mode data"}), 400
 
-    candidates = [w for w in data_list if (w.get(prompt_key) or "").strip() == prompt]
-    if not candidates:
-        return jsonify({"ok": False, "error": "Prompt not found"}), 400
+    try:
+        qid = int(qid)
+    except:
+        return jsonify({"ok": False, "error": "Invalid qid"}), 400
 
-    item = candidates[0]
+    item = _get_item_by_qid(mode, qid)
+    if not item:
+        return jsonify({"ok": False, "error": "Item not found"}), 400
 
     # ✅ 예문 모드: answer가 있으면 그 형태만 정답
     if mode == "ex":
         expected = (item.get("answer") or item["word"]).strip().lower()
-        is_correct = (answer == expected)
         correct_word = item.get("answer") or item["word"]
+        is_correct = (answer == expected)
     else:
         correct_word = item["word"]
         is_correct = (answer == correct_word.lower())
+
+    # ✅ 틀리면 오답 큐에 추가(중복 방지)
+    if not is_correct:
+        _init_mode_state(mode)
+        wkey = _wrong_key(mode)
+        if qid not in session[wkey]:
+            session[wkey].append(qid)
 
     return jsonify({
         "correct": is_correct,
         "correct_word": correct_word
     })
+
+# =========================
+# 5) 실행
+# =========================
 
 if __name__ == "__main__":
     app.run(debug=True)
