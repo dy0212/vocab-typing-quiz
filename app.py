@@ -3,7 +3,6 @@ import random
 
 app = Flask(__name__)
 
-# 지금까지 번역한 단어 목록
 WORDS = [
     {"word": "prelude", "meaning": "전조, 서막, 시작"},
     {"word": "assertive", "meaning": "자기 주장이 분명한, 당당한"},
@@ -95,7 +94,6 @@ def index():
 @app.route("/api/next")
 def next_word():
     item = random.choice(WORDS)
-    # 정답은 클라이언트에 보내지 않음
     return jsonify({"meaning": item["meaning"]})
 
 @app.route("/api/check", methods=["POST"])
@@ -104,17 +102,13 @@ def check():
     meaning = (data.get("meaning") or "").strip()
     answer = (data.get("answer") or "").strip()
 
-    # meaning으로 원본 단어 찾기(뜻이 중복될 가능성 낮다고 가정)
     candidates = [w for w in WORDS if w["meaning"] == meaning]
     if not candidates:
         return jsonify({"ok": False, "error": "Meaning not found"}), 400
 
     correct_word = candidates[0]["word"]
 
-    normalized_answer = answer.lower()
-    normalized_correct = correct_word.lower()
-
-    is_correct = normalized_answer == normalized_correct
+    is_correct = answer.lower() == correct_word.lower()
 
     return jsonify({
         "correct": is_correct,

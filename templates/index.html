@@ -84,6 +84,10 @@
       border-color: rgba(56,189,248,0.6);
       box-shadow:0 0 0 3px rgba(56,189,248,0.15);
     }
+    input[disabled]{
+      opacity:0.6;
+      cursor:not-allowed;
+    }
     button{
       background:rgba(56,189,248,0.15);
       border:1px solid rgba(56,189,248,0.35);
@@ -95,6 +99,11 @@
       transition:0.15s;
     }
     button:hover{ transform:translateY(-1px); }
+    button:disabled{
+      opacity:0.55;
+      cursor:not-allowed;
+      transform:none;
+    }
     .secondary{
       background:rgba(255,255,255,0.06);
       border-color:rgba(255,255,255,0.1);
@@ -165,6 +174,8 @@
   const correctCntEl = document.getElementById("correctCnt");
   const wrongCntEl = document.getElementById("wrongCnt");
   const accEl = document.getElementById("acc");
+  const checkBtn = document.getElementById("checkBtn");
+  const nextBtn = document.getElementById("nextBtn");
 
   function updateStats(){
     correctCntEl.textContent = correct;
@@ -174,9 +185,22 @@
     accEl.textContent = acc + "%";
   }
 
+  function unlockQuestion(){
+    answerEl.disabled = false;
+    checkBtn.disabled = false;
+  }
+
+  function lockQuestion(){
+    answerEl.disabled = true;
+    checkBtn.disabled = true;
+  }
+
   async function loadNext(){
     feedbackEl.className = "feedback muted";
     feedbackEl.textContent = "";
+
+    unlockQuestion();
+
     answerEl.value = "";
     answerEl.focus();
 
@@ -187,6 +211,8 @@
   }
 
   async function checkAnswer(){
+    if(answerEl.disabled) return;
+
     const answer = answerEl.value.trim();
     if(!answer){
       feedbackEl.className = "feedback muted";
@@ -207,20 +233,24 @@
       feedbackEl.className = "feedback good";
       feedbackEl.textContent = "정답! ✅";
       updateStats();
-      // 정답이면 자동 다음
       setTimeout(loadNext, 350);
     }else{
       wrong++;
       feedbackEl.className = "feedback bad";
       feedbackEl.textContent = `오답 ❌ 정답: ${data.correct_word}`;
       updateStats();
+
+      // ✅ 오답이면 이 문제는 끝: 수정/재채점 잠금
+      lockQuestion();
+      nextBtn.focus();
     }
   }
 
-  document.getElementById("checkBtn").addEventListener("click", checkAnswer);
-  document.getElementById("nextBtn").addEventListener("click", loadNext);
+  checkBtn.addEventListener("click", checkAnswer);
+  nextBtn.addEventListener("click", loadNext);
 
   answerEl.addEventListener("keydown", (e) => {
+    if(answerEl.disabled) return;
     if(e.key === "Enter"){
       checkAnswer();
     }
