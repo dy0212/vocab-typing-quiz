@@ -1,6 +1,10 @@
 services:
   - type: web
-    name: vocab-typing-quiz
+    name: vocab-multi-mode-quiz
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
