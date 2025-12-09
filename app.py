@@ -571,17 +571,25 @@ def api_next():
     ukey = _unseen_key(mode)
     wkey = _wrong_key(mode)
 
+    unseen = list(session.get(ukey, []))
+    wrong = list(session.get(wkey, []))
+
     # ✅ 1회전 우선
-    if session[ukey]:
-        qid = session[ukey].pop()
+    if unseen:
+        qid = unseen.pop()
+        session[ukey] = unseen
+
     else:
         # ✅ 1회전 끝난 후에만 오답 복습
-        if session[wkey]:
-            qid = session[wkey].pop(0)  # queue 방식
+        if wrong:
+            qid = wrong.pop(0)
+            session[wkey] = wrong
         else:
             # ✅ 오답도 다 끝나면 1회전 리셋
             _reset_unseen(mode)
-            qid = session[ukey].pop()
+            unseen = list(session.get(ukey, []))
+            qid = unseen.pop()
+            session[ukey] = unseen
 
     item = data_list[qid]
 
@@ -593,7 +601,6 @@ def api_next():
         "qid": qid,
         "empty": False
     })
-
 
 @app.route("/api/check", methods=["POST"])
 def api_check():
@@ -632,13 +639,16 @@ def api_check():
     if not is_correct:
         _init_mode_state(mode)
         wkey = _wrong_key(mode)
-        if qid not in session[wkey]:
-            session[wkey].append(qid)
+        wrong = list(session.get(wkey, []))
+        if qid not in wrong:
+            wrong.append(qid)
+        session[wkey] = wrong
 
     return jsonify({
         "correct": is_correct,
         "correct_word": correct_word
     })
+session.modified = True
 
 # =========================
 # 5) 실행
