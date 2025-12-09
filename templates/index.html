@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vocab Typing Quiz</title>
+  <style>
+    :root{
+      --bg:#0f172a;
+      --panel:#111827;
+      --card:#0b1220;
+      --accent:#38bdf8;
+      --good:#22c55e;
+      --bad:#ef4444;
+      --muted:#94a3b8;
+    }
+    body{
+      margin:0; padding:0;
+      background:linear-gradient(160deg, var(--bg), #020617);
+      color:white;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans KR", sans-serif;
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .wrap{
+      width:min(840px, 92vw);
+      background:rgba(255,255,255,0.03);
+      border:1px solid rgba(255,255,255,0.06);
+      border-radius:20px;
+      padding:28px;
+      box-shadow:0 12px 40px rgba(0,0,0,0.35);
+    }
+    header{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:18px;
+    }
+    .title{
+      font-size:24px;
+      font-weight:700;
+      letter-spacing:0.2px;
+    }
+    .meta{
+      color:var(--muted);
+      font-size:13px;
+    }
+    .card{
+      background:var(--panel);
+      border:1px solid rgba(255,255,255,0.06);
+      border-radius:16px;
+      padding:22px;
+      margin-bottom:18px;
+    }
+    .meaning-label{
+      color:var(--muted);
+      font-size:12px;
+      margin-bottom:6px;
+    }
+    .meaning{
+      font-size:28px;
+      font-weight:650;
+      line-height:1.25;
+    }
+    .input-row{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    input[type="text"]{
+      flex:1 1 260px;
+      background:var(--card);
+      border:1px solid rgba(255,255,255,0.08);
+      border-radius:12px;
+      padding:14px 14px;
+      color:white;
+      font-size:16px;
+      outline:none;
+    }
+    input[type="text"]:focus{
+      border-color: rgba(56,189,248,0.6);
+      box-shadow:0 0 0 3px rgba(56,189,248,0.15);
+    }
+    button{
+      background:rgba(56,189,248,0.15);
+      border:1px solid rgba(56,189,248,0.35);
+      color:white;
+      padding:12px 14px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:600;
+      transition:0.15s;
+    }
+    button:hover{ transform:translateY(-1px); }
+    .secondary{
+      background:rgba(255,255,255,0.06);
+      border-color:rgba(255,255,255,0.1);
+    }
+    .feedback{
+      margin-top:14px;
+      font-size:15px;
+      min-height:22px;
+    }
+    .good{ color:var(--good); }
+    .bad{ color:var(--bad); }
+    .muted{ color:var(--muted); }
+
+    .stats{
+      display:flex;
+      gap:14px;
+      flex-wrap:wrap;
+      margin-top:10px;
+      color:var(--muted);
+      font-size:13px;
+    }
+    .pill{
+      background:rgba(255,255,255,0.06);
+      border:1px solid rgba(255,255,255,0.08);
+      padding:6px 10px;
+      border-radius:999px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="title">뜻 보고 단어 쓰기</div>
+        <div class="meta">한글 뜻이 나오면 영어 단어를 입력하세요.</div>
+      </div>
+      <div class="meta">단어 수: {{ total }}</div>
+    </header>
+
+    <div class="card">
+      <div class="meaning-label">뜻</div>
+      <div id="meaning" class="meaning">로딩 중...</div>
+
+      <div class="stats">
+        <span class="pill">맞음: <b id="correctCnt">0</b></span>
+        <span class="pill">틀림: <b id="wrongCnt">0</b></span>
+        <span class="pill">정확도: <b id="acc">0%</b></span>
+      </div>
+    </div>
+
+    <div class="input-row">
+      <input id="answer" type="text" placeholder="영어 단어 입력 (예: proximity)" autocomplete="off"/>
+      <button id="checkBtn">채점</button>
+      <button id="nextBtn" class="secondary">다음 뜻</button>
+    </div>
+
+    <div id="feedback" class="feedback muted"></div>
+  </div>
+
+<script>
+  let currentMeaning = "";
+  let correct = 0;
+  let wrong = 0;
+
+  const meaningEl = document.getElementById("meaning");
+  const answerEl = document.getElementById("answer");
+  const feedbackEl = document.getElementById("feedback");
+  const correctCntEl = document.getElementById("correctCnt");
+  const wrongCntEl = document.getElementById("wrongCnt");
+  const accEl = document.getElementById("acc");
+
+  function updateStats(){
+    correctCntEl.textContent = correct;
+    wrongCntEl.textContent = wrong;
+    const total = correct + wrong;
+    const acc = total === 0 ? 0 : Math.round((correct / total) * 100);
+    accEl.textContent = acc + "%";
+  }
+
+  async function loadNext(){
+    feedbackEl.className = "feedback muted";
+    feedbackEl.textContent = "";
+    answerEl.value = "";
+    answerEl.focus();
+
+    const res = await fetch("/api/next");
+    const data = await res.json();
+    currentMeaning = data.meaning;
+    meaningEl.textContent = currentMeaning;
+  }
+
+  async function checkAnswer(){
+    const answer = answerEl.value.trim();
+    if(!answer){
+      feedbackEl.className = "feedback muted";
+      feedbackEl.textContent = "단어를 입력해줘!";
+      return;
+    }
+
+    const res = await fetch("/api/check", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ meaning: currentMeaning, answer })
+    });
+
+    const data = await res.json();
+
+    if(data.correct){
+      correct++;
+      feedbackEl.className = "feedback good";
+      feedbackEl.textContent = "정답! ✅";
+      updateStats();
+      // 정답이면 자동 다음
+      setTimeout(loadNext, 350);
+    }else{
+      wrong++;
+      feedbackEl.className = "feedback bad";
+      feedbackEl.textContent = `오답 ❌ 정답: ${data.correct_word}`;
+      updateStats();
+    }
+  }
+
+  document.getElementById("checkBtn").addEventListener("click", checkAnswer);
+  document.getElementById("nextBtn").addEventListener("click", loadNext);
+
+  answerEl.addEventListener("keydown", (e) => {
+    if(e.key === "Enter"){
+      checkAnswer();
+    }
+  });
+
+  loadNext();
+  updateStats();
+</script>
+</body>
+</html>
