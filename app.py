@@ -508,6 +508,25 @@ MODES = {
 
 def _unseen_key(mode): return f"unseen_{mode}"
 def _wrong_key(mode): return f"wrong_{mode}"
+def _counts_key(mode): return f"wrong_counts_{mode}"
+
+def _init_mode_state(mode):
+    ukey = _unseen_key(mode)
+    wkey = _wrong_key(mode)
+    ckey = _counts_key(mode)
+
+    data_list = MODES[mode]["data"]
+
+    if ukey not in session:
+        session[ukey] = list(range(len(data_list)))
+        random.shuffle(session[ukey])
+
+    if wkey not in session:
+        session[wkey] = []
+
+    if ckey not in session:
+        session[ckey] = {}
+
 
 def _init_mode_state(mode):
     """모드별 1회전/오답 큐 초기화"""
@@ -570,27 +589,50 @@ def api_next():
     _init_mode_state(mode)
     ukey = _unseen_key(mode)
     wkey = _wrong_key(mode)
+    ckey = _counts_key(mode)
 
     unseen = list(session.get(ukey, []))
     wrong = list(session.get(wkey, []))
+    counts = dict(session.get(ckey, {}))
+
+    # ✅ 라운드 종료 감지: 1회전도 끝 + 오답도 없음
+    if not unseen and not wrong:
+        summary = []
+        for i, it in enumerate(data_list):
+            cnt = int(counts.get(str(i), 0))
+            if cnt > 0:
+                summary.append({"word": it["word"], "count": cnt})
+        summary.sort(key=lambda x: (-x["count"], x["word"]))
+
+        # ✅ 기록 보여준 뒤 즉시 초기화하고 새 라운드 준비
+        unseen = list(range(len(data_list)))
+        random.shuffle(unseen)
+        wrong = []
+        counts = {}
+
+        session[ukey] = unseen
+        session[wkey] = wrong
+        session[ckey] = counts
+
+        return jsonify({
+            "mode": mode,
+            "label": MODES[mode]["label"],
+            "prompt_key": prompt_key,
+            "completed": True,
+            "summary": summary,
+            "empty": False
+        })
 
     # ✅ 1회전 우선
     if unseen:
         qid = unseen.pop()
-
     else:
-        # ✅ 1회전 끝난 후에만 오답 복습
-        if wrong:
-            qid = wrong.pop(0)
-        else:
-            # ✅ 오답도 다 끝나면 1회전 리셋
-            _reset_unseen(mode)
-            unseen = list(session.get(ukey, []))
-            qid = unseen.pop()
+        # ✅ 1회전 끝난 후 오답 복습
+        qid = wrong.pop(0)
 
-    # ✅ 변경된 리스트를 반드시 재할당
     session[ukey] = unseen
     session[wkey] = wrong
+    session[ckey] = counts
 
     item = data_list[qid]
 
@@ -600,8 +642,10 @@ def api_next():
         "prompt_key": prompt_key,
         "prompt": item[prompt_key],
         "qid": qid,
+        "completed": False,
         "empty": False
     })
+
 
 
 @app.route("/api/check", methods=["POST"])
@@ -628,6 +672,13 @@ def api_check():
     if not item:
         return jsonify({"ok": False, "error": "Item not found"}), 400
 
+    _init_mode_state(mode)
+    wkey = _wrong_key(mode)
+    ckey = _counts_key(mode)
+
+    wrong = list(session.get(wkey, []))
+    counts = dict(session.get(ckey, {}))
+
     # ✅ 예문 모드: answer가 있으면 그 형태만 정답
     if mode == "ex":
         expected = (item.get("answer") or item["word"]).strip().lower()
@@ -637,21 +688,27 @@ def api_check():
         correct_word = item["word"]
         is_correct = (answer == correct_word.lower())
 
-    # ✅ 틀리면 오답 큐에 추가(중복 방지)
-    if not is_correct:
-        _init_mode_state(mode)
-        wkey = _wrong_key(mode)
+    word_base = item["word"]
 
-        wrong = list(session.get(wkey, []))
+    if not is_correct:
+        # 오답 큐 추가
         if qid not in wrong:
             wrong.append(qid)
 
-        session[wkey] = wrong  # ✅ 재할당
+        # 단어별 오답 횟수 +1
+        key = str(qid)
+        counts[key] = int(counts.get(key, 0)) + 1
+
+    session[wkey] = wrong
+    session[ckey] = counts
 
     return jsonify({
         "correct": is_correct,
-        "correct_word": correct_word
+        "correct_word": correct_word,
+        "base_word": word_base,
+        "wrong_count": int(counts.get(str(qid), 0))
     })
+
 
 
 # =========================
